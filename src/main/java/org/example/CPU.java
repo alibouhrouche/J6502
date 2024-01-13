@@ -5,7 +5,7 @@ import org.example.enums.*;
 import java.util.function.Function;
 
 public class CPU implements Runnable {
-    public Memory mem;
+    public final Memory mem;
     public int PC;
     public byte stack;
     public byte accumulator;
@@ -115,19 +115,6 @@ public class CPU implements Runnable {
         }
     }
 
-    private byte readG2(AddressingModeG2 b, boolean isX) {
-        byte index = isX ? X : Y;
-        return switch (b) {
-            case Immediate -> next();
-            case ZeroPage -> mem.readZeroPage(next());
-            case Accumulator -> accumulator;
-            case Absolute -> mem.read(nextWord());
-            case XYIndexedZeroPage -> mem.read((next() + index) & 0xFF);
-            case XYIndexedAbsolute -> mem.read(nextWord() + index);
-            default -> (byte) 0;
-        };
-    }
-
     private void editG2(AddressingModeG2 b, Function<Byte, Byte> f) {
         switch (b) {
             case Immediate -> {
@@ -164,30 +151,7 @@ public class CPU implements Runnable {
                 mem.write(address, output);
             }
             case Jam -> throw new Error("JAM");
-        };
-    }
-    private void writeG2(AddressingModeG2 b, byte data, boolean isY) {
-        switch (b) {
-            case ZeroPage -> {
-                byte address = next();
-                mem.writeZeroPage(address, data);
-            }
-            case Accumulator -> { // Implied
-
-            }
         }
-    }
-
-    private float toDecimal(byte x) {
-        int u = x >> 4;
-        int l = x & 0x0F;
-        return (u * 10) + l;
-    }
-
-    private byte fromDecimal(float x) {
-        int u = (int) x / 10;
-        int l = (int) x % 10;
-        return (byte) ((u << 4) + l);
     }
 
     public void cycle() {
@@ -481,7 +445,15 @@ public class CPU implements Runnable {
                     setFlag(Flags.N, (X & 0x80) == 0x80);
                     setFlag(Flags.Z, X == 0);
                 } else {
-                    X = readG2(b, false);
+                    X = switch (b) {
+                        case Immediate -> next();
+                        case ZeroPage -> mem.readZeroPage(next());
+                        case Accumulator -> accumulator;
+                        case Absolute -> mem.read(nextWord());
+                        case XYIndexedZeroPage -> mem.read((next() + Y) & 0xFF);
+                        case XYIndexedAbsolute -> mem.read(nextWord() + Y);
+                        default -> (byte) 0;
+                    };
                 }
             }
             case DEC -> {

@@ -1,7 +1,7 @@
 package org.example;
 
 public class Memory {
-    private byte[] RAM = new byte[0x7FFF];
+    private final byte[] RAM = new byte[0x7FFF];
     private final byte[] ROM;
 
     public Memory(byte[] ROM) {
