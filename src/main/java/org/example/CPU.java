@@ -1,7 +1,10 @@
 package org.example;
 
 import org.example.enums.*;
+import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NotNull;
 
+import java.nio.MappedByteBuffer;
 import java.util.function.Function;
 
 public class CPU implements Runnable {
@@ -12,8 +15,8 @@ public class CPU implements Runnable {
     public byte X;
     public byte Y;
     public byte status;
-    public CPU(byte[] ROM) {
-        mem = new Memory(ROM);
+    public CPU(Memory memory) {
+        mem = memory;
         reset();
     }
 
@@ -23,7 +26,7 @@ public class CPU implements Runnable {
         accumulator = 0x00;
         X = 0x00;
         Y = 0x00;
-        status = 0x00;
+        status = 0b00100000;
     }
 
     private byte next() {
@@ -38,7 +41,8 @@ public class CPU implements Runnable {
         return val;
     }
 
-    private void setFlag(Flags flag, boolean value) {
+    @Contract(mutates = "this")
+    private void setFlag(@NotNull Flags flag, boolean value) {
         switch (flag) {
             case C:
                 status = (byte) (value ? status | 0x01 : status & 0xFE);
@@ -67,7 +71,7 @@ public class CPU implements Runnable {
         }
     }
 
-    private boolean getFlag(Flags flag) {
+    public boolean getFlag(@NotNull Flags flag) {
         return switch (flag) {
             case C -> (status & 0x01) == 0x01;
             case Z -> (status & 0x02) == 0x02;
@@ -88,6 +92,10 @@ public class CPU implements Runnable {
     private byte popStack() {
         stack = (byte) ((Byte.toUnsignedInt(stack) + 1) & 0xFF);
         return mem.read(0x100 + Byte.toUnsignedInt(stack));
+    }
+
+    private int getA() {
+        return Byte.toUnsignedInt(accumulator);
     }
 
     private byte readG1(AddressingModeG1 b) {
@@ -506,30 +514,24 @@ public class CPU implements Runnable {
             }
             case ADC -> {
                 byte data = readG1(b);
+                int result;
+                int ACC = getA();
+                int value = Byte.toUnsignedInt(data);
                 if (getFlag(Flags.D)) {
-                    int al = (accumulator & 0x0F) + (data & 0x0F) + (getFlag(Flags.C) ? 1 : 0);
-                    int ah = (accumulator >> 4) + (data >> 4) + (al > 15 ? 1 : 0);
-                    setFlag(Flags.Z, ((accumulator + data + (getFlag(Flags.C) ? 1 : 0)) & 0xFF) == 0);
-                    if (al > 9) al += 6;
-                    setFlag(Flags.N, (ah & 0x08) != 0);
-                    setFlag(Flags.V, (
-                            ((ah << 4) ^ accumulator) & 128) != 0 &&
-                            ((accumulator ^ data) & 0x80) == 0
-                    );
-                    if (ah > 9) ah += 6;
-                    setFlag(Flags.C, ah > 0x0F);
-                    accumulator = (byte) (((ah << 4) | (al & 0x0F)) & 0xFF);
+                    result = (ACC & 0x0F) + (value & 0x0F) + (getFlag(Flags.C) ? 1 : 0);
+                    if (result > 9) result += 6;
+                    result = (ACC & 0xF0) + (value & 0xF0) + (result > 0x0F ? 0x10 : 0) + (result & 0x0F);
                 } else {
-                    int tmp = (Byte.toUnsignedInt(accumulator) + Byte.toUnsignedInt(data) + (getFlag(Flags.C) ? 1 : 0));
-                    setFlag(Flags.Z, tmp == 0);
-                    setFlag(Flags.N, (tmp & 0x80) != 0);
-                    setFlag(Flags.V, (
-                            (accumulator & 0x80) != 0 &&
-                                    ((accumulator ^ data) & 0x80) == 0)
-                    );
-                    setFlag(Flags.C, tmp > 0xFF);
-                    accumulator = (byte) tmp;
+                    result = (ACC & 0xFF) + value + (getFlag(Flags.C) ? 1 : 0);
                 }
+                setFlag(Flags.V, (~(ACC ^ value) & (ACC ^ result) & 0x80) != 0);
+                if (getFlag(Flags.D) && result > 0x9F) {
+                    result += 0x60;
+                }
+                setFlag(Flags.Z, result == 0);
+                setFlag(Flags.N, (result & 0x80) == 0x80);
+                setFlag(Flags.C, result > 0xFF);
+                accumulator = (byte) (result & 0xFF);
             }
             case STA -> writeG1(b, accumulator);
             case LDA -> {
@@ -546,8 +548,8 @@ public class CPU implements Runnable {
             case SBC -> {
                 byte data = readG1(b);
                 byte A = calcSBC(data);
-                setFlag(Flags.C, ((accumulator - data - (getFlag(Flags.C) ? 0 : 1)) & 256) != 0);
-                setFlag(Flags.Z, ((accumulator - data - (getFlag(Flags.C) ? 0 : 1)) & 255) != 0);
+                setFlag(Flags.C, ((accumulator - data - (getFlag(Flags.C) ? 0 : 1)) & 256) == 0);
+                setFlag(Flags.Z, ((accumulator - data - (getFlag(Flags.C) ? 0 : 1)) & 255) == 0);
                 setFlag(Flags.V, (
                         (accumulator - data - (getFlag(Flags.C) ? 0 : 1)) & 128) != 0 &&
                         ((accumulator ^ data) & 128) != 0
@@ -574,8 +576,29 @@ public class CPU implements Runnable {
 
     @Override
     public void run() {
-        while (!Thread.interrupted()) {
+        while (!Thread.interrupted() && PC != 0) {
             cycle();
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("A: 0x%02X, X: 0x%02X, Y: 0x%02X, P: %s, SP: 0x%02X, PC: 0x%04X",
+                accumulator, X, Y,
+                String.format("%8s",Integer.toBinaryString(status)).replace(' ', '0'),
+                stack, PC);
+    }
+    public String statusString() {
+        return String.format("%8s",Integer.toBinaryString(status)).replace(' ', '0');
+    }
+    public String flagsString() {
+        return (getFlag(Flags.N) ? "N" : "n") +
+                (getFlag(Flags.V) ? "V" : "v") +
+                (getFlag(Flags.U) ? "U" : "u") +
+                (getFlag(Flags.B) ? "B" : "b") +
+                (getFlag(Flags.D) ? "D" : "d") +
+                (getFlag(Flags.I) ? "I" : "i") +
+                (getFlag(Flags.Z) ? "Z" : "z") +
+                (getFlag(Flags.C) ? "C" : "c");
     }
 }

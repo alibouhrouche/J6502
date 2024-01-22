@@ -1,6 +1,6 @@
 package org.example;
 
-enum Flags {
+public enum Flags {
     /**
      * Carry flag
      */
