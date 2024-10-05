@@ -15,7 +15,8 @@ loop:
   lda #$00
   sta vidpage
 
-  ldx #$20 ; X will count down how many pages of video RAM to go
+  ;ldx #$20 ; X will count down how many pages of video RAM to go
+  ldx #$30 ; X will count down how many pages of video RAM to go
   ldy #$0 ; populate a page starting at 0
   inc start_color
   lda start_color ; color of pixel
