@@ -2,7 +2,6 @@ package org.example;
 
 import java.nio.MappedByteBuffer;
 import java.util.ArrayList;
-import java.util.Optional;
 
 public class MemoryFile implements Memory {
     private final byte[] RAM = new byte[0x7FFF];
@@ -13,6 +12,7 @@ public class MemoryFile implements Memory {
             throw new IllegalArgumentException("ROM cannot be null");
         }
         this.ROM = ROM;
+        this.ioMemoryList = new ArrayList<>();
     }
     private void checkBounds(int address) {
         if (address > 0xFFFF || address < 0) {
